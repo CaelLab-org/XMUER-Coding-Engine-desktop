@@ -1,0 +1,122 @@
+name: Build
+
+# 桌面版（Windows）打包。手动触发，或者打 v* 标签时跑（标签用来发 Release）。
+#
+# 编辑器本体来自另一个仓库（见下面的 ENGINE_REPOSITORY）—— 先在 ubuntu 上按已验证的流程构建，
+# 再把产物交给 Windows 打包，不在 Windows 上重跑一套没验证过的前端构建。
+#
+# 版本号在 package.json 里，发版时记得跟标签对齐。GPL-3.0：发布二进制前确认编辑器仓库
+# 上对应 commit 是公开可取的（workflow 会把它记进 resources/web/SOURCE.txt）。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  ENGINE_REPOSITORY: caellab-com/scratch-gui
+  ENGINE_REF: develop
+
+jobs:
+  web-build:
+    name: 构建编辑器产物
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_REF }}
+          path: engine
+          persist-credentials: false
+      - name: 记下编辑器源码版本
+        id: engine
+        working-directory: engine
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: engine/.nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+      - working-directory: engine
+        run: npm ci --no-audit --no-fund
+      - working-directory: engine
+        run: npm run test:unit
+      - working-directory: engine
+        run: npm run build
+        env:
+          NODE_ENV: production
+      # 让安装包自己说清它是哪个 commit 编出来的（GPL 对应源码用得上，排查用户装的是哪版也用得上）
+      - name: 写上编辑器源码出处
+        run: |
+          cat > engine/build/SOURCE.txt <<EOF
+          Editor source: https://github.com/${ENGINE_REPOSITORY}
+          Commit: ${{ steps.engine.outputs.sha }}
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: engine/build
+          retention-days: 7
+
+  windows:
+    name: Windows 打包
+    needs: web-build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: web-build
+      # 产物没落位就会打出一个没有编辑器的空壳，宁可在这儿炸
+      - name: 校验编辑器产物已就位
+        shell: pwsh
+        run: |
+          if (-not (Test-Path web-build/index.html)) {
+            Get-ChildItem web-build -Recurse -Depth 2 | Select-Object -First 30
+            throw "web-build 里没有 index.html"
+          }
+      - run: npm ci --no-audit --no-fund
+      # 起来看一眼：窗口渲染出来没、桥挂上没、存盘通路通没通、后台被没被降频。
+      # runner 上要是起不来（没桌面会话之类），把 continue-on-error 打开降级成诊断信息。
+      - name: 冒烟自测
+        shell: pwsh
+        run: |
+          $env:XCE_SMOKE_TEST = Join-Path $env:RUNNER_TEMP 'smoke.png'
+          $env:XCE_SMOKE_WAIT = '25000'
+          & .\node_modules\.bin\electron.cmd . 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\smoke.log"
+          @('```', (Get-Content "$env:RUNNER_TEMP\smoke.log" -Tail 60), '```') -join "`n" >> $env:GITHUB_STEP_SUMMARY
+      - name: 打包
+        run: npx electron-builder --win --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xce-desktop-windows
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+      # 先发草稿，自己下载装一遍再公开
+      - name: 打 tag 时发 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.blockmap dist/latest.yml \
+            --title "XCE Desktop $GITHUB_REF_NAME" --generate-notes --draft

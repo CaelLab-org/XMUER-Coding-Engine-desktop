@@ -1,0 +1,34 @@
+XMUER Coding Engine Desktop
+Copyright (C) 2026 CaelLab <contact@caellab.com>
+https://engine.xmuer.online/
+
+This program is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License version 3 as published by the Free Software Foundation.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU General Public License for more details: <https://www.gnu.org/licenses/>.
+
+The full license text ships with this file as LICENSE.txt.
+
+---
+
+本程序基于以下 GPL-3.0 项目构建，版权归其各自作者所有：
+
+* TurboWarp Desktop — https://github.com/TurboWarp/desktop
+  本项目的进程架构（用自定义协议加载本地构建产物、原生文件对话框桥、窗口参数）参考该项目，
+  代码自行实现。
+
+* XMUER Coding Engine — https://github.com/caellab-com/scratch-gui
+  安装包 resources/web 目录下的编辑器由该仓库构建。它是 TurboWarp scratch-gui
+  （https://github.com/TurboWarp/scratch-gui，GPL-3.0）的修改版分支，其上游是 MIT 许可的
+  Scratch GUI。构建时使用的具体 commit 见 resources/web/SOURCE.txt。
+
+* Electron 与 Chromium — 分别以 MIT、BSD 许可分发，许可证文本随程序附带，见同目录的
+  LICENSE.electron.txt 与 LICENSES.chromium.html。
+
+* Scratch 是 Scratch Foundation 的项目。本项目与 Scratch、Scratch Team、Scratch Foundation
+  均无隶属关系，也未获其背书。
+
+对应的完整源码：桌面壳使用本项目的源代码仓库；编辑器的源码见上面
+https://github.com/caellab-com/scratch-gui ，按安装包内 SOURCE.txt 记录的 commit 取用即可复现。

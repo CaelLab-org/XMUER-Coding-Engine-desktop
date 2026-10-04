@@ -1,0 +1,71 @@
+{
+  "name": "xce-desktop",
+  "productName": "XMUER Coding Engine",
+  "version": "4.0.1",
+  "description": "XMUER Coding Engine desktop app",
+  "license": "GPL-3.0-only",
+  "author": {
+    "name": "CaelLab",
+    "email": "contact@caellab.com"
+  },
+  "homepage": "https://engine.xmuer.online/",
+  "main": "src-main/index.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "copy-web": "node scripts/copy-web-build.mjs",
+    "pack": "npm run copy-web && electron-builder --win --dir",
+    "dist": "npm run copy-web && electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "online.xmuer.engine",
+    "productName": "XMUER Coding Engine",
+    "copyright": "Copyright (C) 2026 CaelLab — GPL-3.0-only",
+    "artifactName": "XMUER-Coding-Engine-${version}-win-${arch}.${ext}",
+    "directories": {
+      "buildResources": "art",
+      "output": "dist"
+    },
+    "files": [
+      "src-main/**/*",
+      "src-preload/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "web-build",
+        "to": "web"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "NOTICE.txt",
+        "to": "NOTICE.txt"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "art/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "XMUER Coding Engine",
+      "artifactName": "XCE-Setup-${version}.${ext}"
+    }
+  }
+}
