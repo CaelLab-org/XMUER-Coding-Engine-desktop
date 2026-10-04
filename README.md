@@ -6,9 +6,17 @@
 
 编辑器本体来自另一个仓库 [caellab-com/scratch-gui](https://github.com/caellab-com/scratch-gui)（也就是 engine.xmuer.online 的那套构建产物）。本仓库只放 Electron 壳：
 
-- `src-main/` 主进程：自定义 `xce://` 协议加载本地构建产物、原生文件对话框与原子写盘、窗口参数（关掉后台降频）、外部链接交给系统浏览器、AI 的取网页请求（`net.fetch`，没有页面的跨域限制）
+- `src-main/` 主进程：自定义 `xce://` 协议加载本地构建产物、原生文件对话框与原子写盘、窗口参数（关掉后台降频）、外部链接交给系统浏览器、AI 的取网页请求（`net.fetch`，没有页面的跨域限制）、AI 设置的落盘（`settings-store.js` 写 `userData/settings.json`）
 - `src-preload/` 只做最小暴露（IPC）
-- 渲染端需要用到的桥在编辑器仓库里：文件读写是 `src/playground/desktop-integration.js`，取网页是 `src/playground/ai/online.js`（都只看 `window.EditorPreload`，网页版整段跳过）
+- 渲染端需要用到的桥在编辑器仓库里：文件读写是 `src/playground/desktop-integration.js`，取网页是 `src/playground/ai/online.js`，AI 设置的存取是 `src/playground/ai/settings.js`（都只看 `window.EditorPreload`，网页版整段跳过）
+
+## AI 设置存在哪
+
+网页版把 AI 设置（供应商 / base_url / 模型 / api_key）放在 cookie 里，**桌面版没有 cookie 可用**：`xce://` 是自定义协议，Chromium 不给它写 —— 渲染端的 `document.cookie` 静默失败，主进程的 `session.cookies.set` 直接报 `invalid domain`（两条路都实测过）。
+
+所以桌面版的设置走主进程的文件：`%APPDATA%/XMUER Coding Engine/settings.json`。preload 在页面脚本之前同步取一份快照（`loadSettings` 在 render 里就调，等不了 IPC），写入经 IPC 原子落盘。编辑器侧是同一份 `ai/settings.js`，启动时探测 `window.EditorPreload` 决定走哪条路，网页版行为不变。
+
+想备份或换机，直接拷这个 json 就行（api_key 也在里面，别外传）。
 
 ## 构建
 

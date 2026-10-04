@@ -22,6 +22,7 @@ const {registerScheme, serveBuild} = require('./protocols');
 const {resolveBuildRoot, resolveStartPath} = require('./build-root');
 const {setupFileIO, abortAllWriters, registerHandle} = require('./file-io');
 const {setupNetFetch} = require('./net-fetch');
+const {setupSettingsStore} = require('./settings-store');
 const {createEditorWindow} = require('./editor-window');
 const {runSmokeTest} = require('./smoke-test');
 
@@ -70,6 +71,8 @@ if (!app.requestSingleInstanceLock()) {
         setupFileIO({getWindow: () => mainWindow});
         // AI 的 xce_read_online 走这里：主进程发请求，没有页面的跨域限制
         setupNetFetch();
+        // AI 设置的落盘通道：必须在建窗口之前注册 —— preload 一跑就会同步要那份启动快照
+        setupSettingsStore();
 
         const window = createEditorWindow({startPath: resolveStartPath(buildRoot)});
         mainWindow = window;
