@@ -3,15 +3,15 @@
  * Copyright (C) 2026 CaelLab <contact@caellab.com>
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 3 as
+ * it under the terms of the GNU Affero General Public License version 3 as
  * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
@@ -40,6 +40,9 @@ const RAW_CAP = 1024 * 1024;
 
 // 明显不是文字的东西别当文本取回来：二进制解出来的垃圾会原样进模型的上下文
 const BINARY = /^(?:image|video|audio|font)\/|^application\/(?:pdf|zip|octet-stream|x-7z-compressed|x-rar)/i;
+
+// 下载图片的原始字节上限（xce:fetch-binary）：造型资产 10MB 已经是编辑器侧的天花板
+const IMAGE_CAP = 10 * 1024 * 1024;
 
 /** 服务器声明的字符集优先（中文站有 GBK 的），认不出就 UTF-8 */
 const decoderFor = contentType => {
@@ -97,6 +100,62 @@ const setupNetFetch = () => {
             }
             const {text, truncated} = await readCapped(response, decoderFor(contentType));
             return {ok: response.ok, status: response.status, text, truncated};
+        } catch (error) {
+            return {
+                ok: false,
+                networkError: controller.signal.aborted ?
+                    `no response within ${limit / 1000}s` : (error && error.message) || String(error)
+            };
+        } finally {
+            clearTimeout(timer);
+        }
+    });
+
+    // 下载图片（编辑器的「从网页加造型」）：跟 fetch-online 同一条网络栈，但不做文本转换 ——
+    // 字节以 base64 回给渲染端，类型识别和 webp→png 转换都在那边做（见 online.js 的 fetchImage）。
+    ipcMain.handle('xce:fetch-binary', async (event, url, timeoutMs) => {
+        const target = String(url || '').trim();
+        if (!/^https?:\/\/\S+$/i.test(target)) {
+            return {ok: false, networkError: 'the URL must be a full http(s) address'};
+        }
+
+        const asked = Number(timeoutMs);
+        const limit = Number.isFinite(asked) ?
+            Math.min(Math.max(asked, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), limit);
+        try {
+            const response = await net.fetch(target, {signal: controller.signal, redirect: 'follow'});
+            const contentType = response.headers.get('content-type') || '';
+            if (/text\/html/i.test(contentType)) {
+                // 拿到的是网页不是图片文件 —— 让编辑器侧给模型一句能懂的解释
+                return {ok: false, status: response.status, notImage: contentType};
+            }
+            const reader = response.body && response.body.getReader ? response.body.getReader() : null;
+            let bytes;
+            if (reader) {
+                const chunks = [];
+                let size = 0;
+                let tooLarge = false;
+                for (;;) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+                    size += value.byteLength;
+                    if (size > IMAGE_CAP) {
+                        tooLarge = true;
+                        await reader.cancel();
+                        break;
+                    }
+                }
+                if (tooLarge) return {ok: false, status: response.status, tooLarge: true};
+                bytes = Buffer.concat(chunks);
+            } else {
+                bytes = Buffer.from(await response.arrayBuffer());
+                if (bytes.length > IMAGE_CAP) return {ok: false, status: response.status, tooLarge: true};
+            }
+            return {ok: response.ok, status: response.status, contentType, base64: bytes.toString('base64')};
         } catch (error) {
             return {
                 ok: false,

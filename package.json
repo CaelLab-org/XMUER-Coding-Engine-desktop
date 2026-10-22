@@ -1,9 +1,9 @@
 {
   "name": "xce-desktop",
   "productName": "XMUER Coding Engine",
-  "version": "4.0.3",
+  "version": "4.3.3",
   "description": "XMUER Coding Engine desktop app",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "author": {
     "name": "CaelLab",
     "email": "contact@caellab.com"
@@ -15,7 +15,8 @@
     "start": "electron .",
     "copy-web": "node scripts/copy-web-build.mjs",
     "pack": "npm run copy-web && electron-builder --win --dir",
-    "dist": "npm run copy-web && electron-builder --win"
+    "dist": "npm run pack && node scripts/build-installer.mjs",
+    "dist:nsis": "npm run copy-web && electron-builder --win"
   },
   "devDependencies": {
     "electron": "^42.4.1",
@@ -24,7 +25,7 @@
   "build": {
     "appId": "online.xmuer.engine",
     "productName": "XMUER Coding Engine",
-    "copyright": "Copyright (C) 2026 CaelLab — GPL-3.0-only",
+    "copyright": "Copyright (C) 2026 CaelLab — AGPL-3.0-only",
     "artifactName": "XMUER-Coding-Engine-${version}-win-${arch}.${ext}",
     "directories": {
       "buildResources": "art",
@@ -47,6 +48,14 @@
       {
         "from": "NOTICE.txt",
         "to": "NOTICE.txt"
+      },
+      {
+        "from": "art/privacy-caellab.txt",
+        "to": "policies/caellab-privacy.txt"
+      },
+      {
+        "from": "art/privacy-xce.txt",
+        "to": "policies/xce-privacy.txt"
       }
     ],
     "win": {
@@ -58,14 +67,39 @@
           ]
         }
       ],
-      "icon": "art/icon.png"
+      "icon": "art/icon.ico"
     },
+    "fileAssociations": [
+      {
+        "ext": "sb3",
+        "name": "Scratch 3 Project",
+        "description": "XMUER Coding Engine project",
+        "role": "Editor",
+        "mimeType": "application/x.scratch.sb3"
+      },
+      {
+        "ext": "xce",
+        "name": "XMUER Coding Engine Project",
+        "description": "XMUER Coding Engine project",
+        "role": "Editor",
+        "mimeType": "application/x.xce.project"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "XMUER Coding Engine",
-      "artifactName": "XCE-Setup-${version}.${ext}"
+      "artifactName": "XCE-Setup-${version}.${ext}",
+      "license": "LICENSE",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "displayLanguageSelector": true,
+      "uninstallDisplayName": "XMUER Coding Engine ${version}",
+      "deleteAppDataOnUninstall": true,
+      "menuCategory": "CaelLab"
     }
   }
 }

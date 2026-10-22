@@ -3,15 +3,15 @@
  * Copyright (C) 2026 CaelLab <contact@caellab.com>
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 3 as
+ * it under the terms of the GNU Affero General Public License version 3 as
  * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const {app} = require('electron');
 
-// 编辑器是另一个仓库（caellab-com/scratch-gui），默认放在本仓库的兄弟目录下。
+// 编辑器是另一个仓库（CaelLab-org/scratch-gui），默认放在本仓库的兄弟目录下。
 // 位置不一样就用 XCE_ENGINE_DIR 指过去。
 const ENGINE_DIR = process.env.XCE_ENGINE_DIR || path.join(__dirname, '..', '..', 'XMUER Coding Engine');
 

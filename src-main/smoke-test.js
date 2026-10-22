@@ -3,19 +3,20 @@
  * Copyright (C) 2026 CaelLab <contact@caellab.com>
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 3 as
+ * it under the terms of the GNU Affero General Public License version 3 as
  * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 const fs = require('fs');
+const path = require('path');
 const {app, Menu} = require('electron');
 
 /**
@@ -68,7 +69,7 @@ const measureBackgroundTicks = window => {
     });
 };
 
-const runSmokeTest = (window, {outputPath, fileId, fileTarget}) => {
+const runSmokeTest = (window, {outputPath, fileId, fileTarget, openFile}) => {
     const wait = Number(process.env.XCE_SMOKE_WAIT || 15000);
 
     window.webContents.on('console-message', (...args) => {
@@ -97,6 +98,25 @@ const runSmokeTest = (window, {outputPath, fileId, fileTarget}) => {
                 console.log(`[menu] ${menuRemoved ? 'removed' : 'still present'}`);
                 if (!menuRemoved) {
                     failed = true;
+                }
+
+                // 命令行带了一个作品：确认真的载进 VM 了、标题换了、并且拿到了可写回的句柄
+                if (openFile) {
+                    const opened = await window.webContents.executeJavaScript(`(() => {
+                        const state = window.ReduxStore && window.ReduxStore.getState();
+                        const targets = window.vm && window.vm.runtime.targets;
+                        return {
+                            title: state && state.scratchGui.projectTitle,
+                            hasHandle: !!(state && state.scratchGui.tw.fileHandle),
+                            targets: targets ? targets.map(target => target.getName()) : []
+                        };
+                    })()`);
+                    console.log(`[open-file] ${JSON.stringify(opened)}`);
+                    const expectedTitle = path.basename(openFile)
+                        .replace(/\.(?:sb3|sb2|sb|xce)$/i, '');
+                    if (!opened.hasHandle || opened.title !== expectedTitle || opened.targets.length < 2) {
+                        failed = true;
+                    }
                 }
 
                 if (fileId) {

@@ -3,15 +3,15 @@
  * Copyright (C) 2026 CaelLab <contact@caellab.com>
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 3 as
+ * it under the terms of the GNU Affero General Public License version 3 as
  * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
@@ -38,9 +38,9 @@ if (!fs.existsSync(path.join(source, 'index.html'))) {
 fs.rmSync(target, {recursive: true, force: true});
 fs.cpSync(source, target, {recursive: true});
 
-// GPL-3.0：发出去的二进制要说清编辑器源码出自哪个 commit（CI 里同样写这个文件）。
+// AGPL-3.0：发出去的二进制要说清编辑器源码出自哪个 commit（CI 里同样写这个文件）。
 // 它随 extraResources 进安装目录（resources/web/SOURCE.txt），用户找源码时看得到。
-const ENGINE_REPOSITORY = 'caellab-com/scratch-gui';
+const ENGINE_REPOSITORY = 'CaelLab-org/scratch-gui';
 let commit = 'unknown';
 let dirty = '';
 try {

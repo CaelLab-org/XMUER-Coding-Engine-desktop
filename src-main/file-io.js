@@ -3,15 +3,15 @@
  * Copyright (C) 2026 CaelLab <contact@caellab.com>
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 3 as
+ * it under the terms of the GNU Affero General Public License version 3 as
  * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
@@ -19,9 +19,10 @@ const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const {dialog, ipcMain} = require('electron');
+const {explainAiExport, isAiExport} = require('./project-files');
 
 const PROJECT_FILTERS = [
-    {name: 'Scratch 项目', extensions: ['sb3', 'sb2', 'sb']},
+    {name: 'Scratch / XCE 项目', extensions: ['sb3', 'sb2', 'sb', 'xce']},
     {name: '所有文件', extensions: ['*']}
 ];
 
@@ -90,6 +91,10 @@ const setupFileIO = ({getWindow}) => {
             properties: ['openFile']
         });
         if (canceled || filePaths.length === 0) {
+            return null;
+        }
+        if (isAiExport(filePaths[0])) {
+            explainAiExport(getWindow(), filePaths[0]);
             return null;
         }
         return registerHandle(filePaths[0]);
