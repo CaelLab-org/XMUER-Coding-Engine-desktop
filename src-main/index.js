@@ -25,6 +25,7 @@ const {setupOpenFiles, openFiles, flushPending} = require('./open-files');
 const {filesFromArgv} = require('./project-files');
 const {setupNetFetch} = require('./net-fetch');
 const {setupSettingsStore} = require('./settings-store');
+const {setupAiBridge} = require('./ai-bridge');
 const {setupNotifications} = require('./notifications');
 const {createSplashWindow} = require('./splash');
 const {shouldShowSplash, markLaunched} = require('./launch-history');
@@ -49,6 +50,7 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     let mainWindow = null;
+    let aiBridge = null;
 
     app.on('second-instance', (event, argv) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -67,7 +69,13 @@ if (!app.requestSingleInstanceLock()) {
         }
     });
 
-    app.whenReady().then(() => {
+    app.on('will-quit', () => {
+        if (aiBridge) {
+            aiBridge.stop();
+        }
+    });
+
+    app.whenReady().then(async () => {
         let buildRoot;
         try {
             buildRoot = resolveBuildRoot();
@@ -83,6 +91,11 @@ if (!app.requestSingleInstanceLock()) {
         setupNetFetch();
         // AI 设置的落盘通道：必须在建窗口之前注册 —— preload 一跑就会同步要那份启动快照
         setupSettingsStore();
+        // 本机 AI 桥：外部 MCP 客户端经它驱动编辑器。端口和口令落在用户目录的 ai-bridge.json，
+        // 只监听 127.0.0.1；preload 同样在建窗口前同步读一次。
+        aiBridge = await setupAiBridge({
+            dir: path.join(app.getPath('appData'), 'XMUER Coding Engine')
+        });
         // 桌面通知：AI 干完活 / 要用户拿主意时把窗口叫回来（渲染端 ai/notify.js 发过来的）
         setupNotifications();
 

@@ -26,8 +26,9 @@ cd "../XMUER Coding Engine" && npm run build && cd -
 
 # 2. 本仓库
 npm install
-npm start        # 开发态直接跑，自动用 ../XMUER Coding Engine/build
-npm run dist     # 出 Windows 安装包到 dist/
+npm run copy-web   # web-build 存在时开发态优先读它；改完编辑器这一步不能省
+npm start          # 开发态直接跑
+npm run dist       # 出 Windows 安装包到 dist/
 ```
 
 编辑器仓库不在同级目录时，用环境变量 `XCE_ENGINE_DIR=<编辑器仓库路径>` 指定。

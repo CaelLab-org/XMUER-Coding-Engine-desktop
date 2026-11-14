@@ -26,6 +26,15 @@ try {
     settingsSnapshot = null;
 }
 
+// 本机 AI 桥的端口和口令（主进程建窗口前就起好了）。没有这段的网页版，
+// 编辑器侧的 ai/bridge.js 会直接跳过。
+let aiBridgeSnapshot = null;
+try {
+    aiBridgeSnapshot = ipcRenderer.sendSync('xce:ai-bridge-info-sync') || null;
+} catch (error) {
+    aiBridgeSnapshot = null;
+}
+
 // 「用本程序打开」的文件可能在页面脚本挂好之前就到（冷启动时主进程在 did-finish-load 就发），
 // 先排队，等编辑器侧注册 onOpenFile 时补发。
 const openFileQueue = [];
@@ -67,6 +76,8 @@ contextBridge.exposeInMainWorld('EditorPreload', {
     // AI 设置：快照是启动时的值，之后由渲染端自己记；写入交给主进程原子落盘（src-main/settings-store.js）
     settingsSnapshot,
     settingsWrite: raw => ipcRenderer.invoke('xce:settings-write', raw),
+    // 本机 AI 桥（MCP 客户端用）：渲染端拿它连 127.0.0.1 上的 hub
+    aiBridge: aiBridgeSnapshot,
     // 关窗确认：主进程收到页面的 beforeunload 驳回时会问一声，用户确认后再让它真关
     // （见 src-main/editor-window.js 与 playground/close-guard.js）
     onCloseRequest: callback => {
