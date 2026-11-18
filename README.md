@@ -2,6 +2,16 @@
 
 [XMUER Coding Engine](https://engine.xmuer.online/) 的 Windows 桌面版。把编辑器整个装到本地，不再受浏览器标签页的影响：切到后台不会被停掉动画循环、不会被把定时器节流到分钟级、不会被回收标签页、本地数据也不会被浏览器清掉。
 
+## 下载和发布在哪
+
+**本仓库只放 Electron 壳的源码，不提供安装包。** 桌面版和网页版共用同一套编辑器，正式发布、安装包和每版更新日志都发在主仓库 [CaelLab-org/scratch-gui](https://github.com/CaelLab-org/scratch-gui)：
+
+- 下载页面：<https://engine.xmuer.online/desktop/>
+- 最新 Release：<https://github.com/CaelLab-org/scratch-gui/releases>
+- 编辑器源码：<https://github.com/CaelLab-org/scratch-gui>
+
+本仓库的 Release 只是指路（不附安装包），免得两处版本对不上。
+
 ## 与网页版的关系
 
 编辑器本体来自另一个仓库 [CaelLab-org/scratch-gui](https://github.com/CaelLab-org/scratch-gui)（也就是 engine.xmuer.online 的那套构建产物）。本仓库只放 Electron 壳：
