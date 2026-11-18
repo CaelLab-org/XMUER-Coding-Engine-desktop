@@ -10,7 +10,7 @@
 - 最新 Release：<https://github.com/CaelLab-org/scratch-gui/releases>
 - 编辑器源码：<https://github.com/CaelLab-org/scratch-gui>
 
-本仓库的 Release 只是指路（不附安装包），免得两处版本对不上。
+本仓库只有一个 0.0.1 的指路 Release，实际版本和安装包都在主仓库，免得两处版本对不上。
 
 ## 与网页版的关系
 
