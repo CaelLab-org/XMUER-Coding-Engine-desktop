@@ -34,6 +34,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
     let port = 0;
     let editor = null;
     let tools = [];
+    let skills = [];
     let queue = Promise.resolve();
     let seq = 0;
     const pending = new Map();
@@ -50,7 +51,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
     const persist = () => {
         try {
             fs.mkdirSync(dir, {recursive: true});
-            fs.writeFileSync(file, JSON.stringify({port, token, pid: process.pid, tools}));
+            fs.writeFileSync(file, JSON.stringify({port, token, pid: process.pid, tools, skills}));
         } catch (error) {
             // 写不了就只是 MCP 找不到这条链，编辑器自己照常
         }
@@ -123,12 +124,17 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
                     waiters.forEach(finish => finish());
                     waiters.clear();
                 }
-                send(socket, {type: 'welcome', tools: role === 'client' ? tools : []});
+                send(socket, {
+                    type: 'welcome',
+                    tools: role === 'client' ? tools : [],
+                    skills: role === 'client' ? skills : []
+                });
                 return;
             }
             if (role === 'editor') {
                 if (message.type === 'tools' && Array.isArray(message.tools)) {
                     tools = message.tools;
+                    skills = Array.isArray(message.skills) ? message.skills : [];
                     persist();
                 } else if (message.type === 'result') {
                     const finish = pending.get(message.id);
@@ -147,7 +153,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             }
             if (role === 'client') {
                 if (message.type === 'list') {
-                    waitForEditor().then(() => send(socket, {type: 'tools', tools}));
+                    waitForEditor().then(() => send(socket, {type: 'tools', tools, skills}));
                 } else if (message.type === 'call') {
                     const id = message.id;
                     // 串行：两个客户端同时写同一个项目只会互相盖
