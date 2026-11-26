@@ -35,8 +35,11 @@ const crypto = require('crypto');
 const {spawn} = require('child_process');
 const {app, BrowserWindow, ipcMain, shell} = require('electron');
 
+// 更新清单跟网页版一起发布（engine.xmuer.online 是 Pages，缓存 10 分钟）；
+// 不再用 dl.caellab.com —— 那个域是给安装包下载的，CDN 缓存太久，做更新检查会一直看到旧清单。
+// 旧版本还读 dl 的地址，那边 302 到这里（updater 的 fetchText / download 都跟重定向，最多 4 跳）。
 const MANIFEST_URL = process.env.XCE_UPDATE_MANIFEST ||
-    'https://dl.caellab.com/file/xmuer/coding/engine/latest.json';
+    'https://engine.xmuer.online/desktop/latest.json';
 const DOWNLOAD_PAGE = 'https://engine.xmuer.online/desktop/';
 const CHECK_TIMEOUT_MS = 15000;
 const AUTO_CHECK_DELAY_MS = 12000;
