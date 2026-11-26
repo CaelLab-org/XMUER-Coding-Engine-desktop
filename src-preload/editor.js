@@ -35,6 +35,15 @@ try {
     aiBridgeSnapshot = null;
 }
 
+// 对外接口（XCE CLI / 别的机器上的 AI 客户端）：启动快照 + 开关。默认是关的，
+// 用户在设置页里打开才监听；密钥由主进程生成并落盘。
+let aiAccessSnapshot = null;
+try {
+    aiAccessSnapshot = ipcRenderer.sendSync('xce:ai-access-sync') || null;
+} catch (error) {
+    aiAccessSnapshot = null;
+}
+
 // 「用本程序打开」的文件可能在页面脚本挂好之前就到（冷启动时主进程在 did-finish-load 就发），
 // 先排队，等编辑器侧注册 onOpenFile 时补发。
 const openFileQueue = [];
@@ -78,6 +87,10 @@ contextBridge.exposeInMainWorld('EditorPreload', {
     settingsWrite: raw => ipcRenderer.invoke('xce:settings-write', raw),
     // 本机 AI 桥（MCP 客户端用）：渲染端拿它连 127.0.0.1 上的 hub
     aiBridge: aiBridgeSnapshot,
+    // 对外接口：快照给设置页首屏用，开关和换密钥走 IPC（主进程据此开/停监听）
+    aiAccess: aiAccessSnapshot,
+    aiAccessGet: () => ipcRenderer.invoke('xce:ai-access-get'),
+    aiAccessSet: patch => ipcRenderer.invoke('xce:ai-access-set', patch),
     // 关窗确认：主进程收到页面的 beforeunload 驳回时会问一声，用户确认后再让它真关
     // （见 src-main/editor-window.js 与 playground/close-guard.js）
     onCloseRequest: callback => {
