@@ -27,6 +27,7 @@ const {setupNetFetch} = require('./net-fetch');
 const {setupSettingsStore} = require('./settings-store');
 const {setupAiBridge} = require('./ai-bridge');
 const {setupNotifications} = require('./notifications');
+const {register: registerUpdater} = require('./updater');
 const {createSplashWindow} = require('./splash');
 const {shouldShowSplash, markLaunched} = require('./launch-history');
 const {createEditorWindow} = require('./editor-window');
@@ -98,6 +99,8 @@ if (!app.requestSingleInstanceLock()) {
         });
         // 桌面通知：AI 干完活 / 要用户拿主意时把窗口叫回来（渲染端 ai/notify.js 发过来的）
         setupNotifications();
+        // 自动更新：注册 IPC，冷启动十几秒后自己查一次（清单在下载站的 latest.json）
+        registerUpdater();
 
         // 启动画面只在**冷启动**演：当天第一次、或者刚更新完（判据见 launch-history.js）。
         // 同一天之内再开就直接出窗口 —— 每次都演一遍是「看着就慢」的来源（用户 2026-10-04 提的）。

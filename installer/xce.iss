@@ -51,8 +51,11 @@ OutputBaseFilename={#InnoOutputName}
 SetupIconFile=..\art\icon.ico
 UninstallDisplayName={#AppName} {#AppVersion}
 UninstallDisplayIcon={app}\{#AppExeName}
-LicenseFile=..\LICENSE
+; 许可协议只作为安装前的提示页（InfoBeforeFile）；不再用 LicenseFile 那一步，
+; 免得用户还要点「我接受」。隐私 + 许可证正文都在 privacy-installer.txt 里。
 InfoBeforeFile=..\art\privacy-installer.txt
+; 不弹语言选择器：按系统语言自动选，认不出来用 [Languages] 里的第一个
+ShowLanguageDialog=no
 DisableWelcomePage=no
 WizardStyle=dynamic includetitlebar
 WizardSizePercent=120,120
@@ -104,6 +107,8 @@ Root: HKA; Subkey: "Software\Classes\CaelLab.XCE.Project\shell\open\command"; Va
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; 应用内自动更新（/VERYSILENT /RELAUNCH=1）：装完把新版直接拉起来
+Filename: "{app}\{#AppExeName}"; Flags: nowait; Check: RelaunchAfterSilentInstall
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\{#AppName}"
@@ -111,6 +116,36 @@ Type: filesandordirs; Name: "{userappdata}\{#AppName}"
 [Code]
 var
   OldInstallDir: String;
+
+function RelaunchAfterSilentInstall: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
+end;
+
+function OpenProcess(dwDesiredAccess: Cardinal; bInheritHandle: Boolean;
+  dwProcessId: Cardinal): Cardinal;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(hHandle: Cardinal; dwMilliseconds: Cardinal): Cardinal;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(hObject: Cardinal): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+// 应用内更新时，主进程先把安装程序拉起来再退出。Restart Manager 对这种「正在退出的
+// Electron 进程」不一定靠得住，所以这里明确等它退干净（最多 2 分钟）再动文件。
+procedure WaitForPreviousApp;
+var
+  WaitPid: Integer;
+  ProcHandle: Cardinal;
+begin
+  WaitPid := StrToIntDef(ExpandConstant('{param:WAITPID|0}'), 0);
+  if WaitPid <= 0 then Exit;
+  ProcHandle := OpenProcess($00100000, False, WaitPid);
+  if ProcHandle <> 0 then
+  begin
+    WaitForSingleObject(ProcHandle, 120000);
+    CloseHandle(ProcHandle);
+  end;
+end;
 
 function OldNsKey: String;
 begin
@@ -125,6 +160,7 @@ end;
 function InitializeSetup: Boolean;
 begin
   Result := True;
+  WaitForPreviousApp;
   if OldNsInstallPresent then
     RegQueryStringValue(HKEY_CURRENT_USER, 'Software\{#OldNsGuid}', 'InstallLocation', OldInstallDir)
   else if RegKeyExists(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#OldNsGuid}') then

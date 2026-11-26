@@ -1,8 +1,16 @@
-﻿XMUER Coding Engine 安装程序 · 隐私政策
+﻿XMUER Coding Engine 安装程序 · 隐私与许可
 
 本页包含两份文件：《虚舟实验室隐私权政策》（适用于虚舟实验室全部平台，最新版见
 https://policy.caellab.org）与《XMUER Coding Engine 隐私政策》（适用于本引擎，最新版见
 https://engine.xmuer.online/privacy）。
+
+关于许可
+----------------------------------------------------------------
+本程序以 GNU Affero 通用公共许可证第 3 版（AGPL-3.0-only）发布，不适用任何更晚版本。
+完整许可证正文随安装包一起提供（安装目录下的 LICENSE），也可以在线读：
+https://www.gnu.org/licenses/agpl-3.0.txt
+源代码：https://github.com/CaelLab-org/scratch-gui
+继续安装即表示你已阅读并同意上述许可条款与本页的隐私政策。
 
 ================================================================
 虚舟实验室隐私权政策

@@ -197,10 +197,12 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             return {
                 enabled: !!raw.enabled,
                 key: typeof raw.key === 'string' ? raw.key : '',
-                port: Number(raw.port) || ACCESS_PORT
+                port: Number(raw.port) || ACCESS_PORT,
+                // true = 只听 127.0.0.1（同一台机器上的 AI 才连得上）
+                local: !!raw.local
             };
         } catch (error) {
-            return {enabled: false, key: '', port: ACCESS_PORT};
+            return {enabled: false, key: '', port: ACCESS_PORT, local: false};
         }
     };
     const access = readAccess();
@@ -236,10 +238,13 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         return {
             enabled: !!access.enabled,
             running,
+            local: !!access.local,
             port: access.port,
             key: access.key,
             endpoint: `http://127.0.0.1:${access.port}/v1`,
-            urls: running ? lanAddresses().map(ip => `http://${ip}:${access.port}/v1`) : [],
+            // 只听本机的时候，局域网地址给出去也没用，干脆不列
+            urls: running && !access.local ?
+                lanAddresses().map(ip => `http://${ip}:${access.port}/v1`) : [],
             error: accessError
         };
     };
@@ -382,7 +387,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             accessServer = null;
             resolve(false);
         });
-        server.listen(access.port, '0.0.0.0', () => {
+        server.listen(access.port, access.local ? '127.0.0.1' : '0.0.0.0', () => {
             accessServer = server;
             resolve(true);
         });
@@ -415,6 +420,11 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         if (patch.rotate) {
             access.key = newKey();
         }
+        let rebind = false;
+        if (typeof patch.local === 'boolean' && patch.local !== !!access.local) {
+            access.local = patch.local;
+            rebind = true;
+        }
         if (typeof patch.enabled === 'boolean') {
             if (patch.enabled && !access.key) {
                 access.key = newKey();
@@ -422,6 +432,10 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             access.enabled = patch.enabled;
         }
         if (access.enabled) {
+            // 只改监听范围也得重开一次：绑定地址是 listen 那一刻定下的
+            if (rebind) {
+                stopAccess();
+            }
             // 起不来（端口被占）就当没开，别让界面显示"已开启"却连不上
             access.enabled = await startAccess();
         } else {

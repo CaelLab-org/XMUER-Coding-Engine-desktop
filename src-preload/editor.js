@@ -91,6 +91,20 @@ contextBridge.exposeInMainWorld('EditorPreload', {
     aiAccess: aiAccessSnapshot,
     aiAccessGet: () => ipcRenderer.invoke('xce:ai-access-get'),
     aiAccessSet: patch => ipcRenderer.invoke('xce:ai-access-set', patch),
+    // 自动更新（见 src-main/updater.js）：查、下、装分开，状态由主进程 push 过来
+    update: {
+        state: () => ipcRenderer.invoke('xce:update-state'),
+        check: () => ipcRenderer.invoke('xce:update-check'),
+        download: () => ipcRenderer.invoke('xce:update-download'),
+        install: () => ipcRenderer.invoke('xce:update-install'),
+        openPage: () => ipcRenderer.invoke('xce:update-open-page'),
+        openNotes: () => ipcRenderer.invoke('xce:update-open-notes'),
+        onState: callback => {
+            const listener = (event, next) => callback(next);
+            ipcRenderer.on('xce:update-state', listener);
+            return () => ipcRenderer.removeListener('xce:update-state', listener);
+        }
+    },
     // 关窗确认：主进程收到页面的 beforeunload 驳回时会问一声，用户确认后再让它真关
     // （见 src-main/editor-window.js 与 playground/close-guard.js）
     onCloseRequest: callback => {
