@@ -32,18 +32,35 @@ const EDITOR_WAIT_MS = 3000;
 // 对外接口的固定端口：要能被别的机器 / 别的 AI 客户端记住，端口就不能每次变
 const ACCESS_PORT = 49621;
 const ACCESS_BODY_LIMIT = 1024 * 1024;
+// 素材上传（音频等）：走 /v1/assets 的原始字节，不塞进 JSON。Scratch 自己的声音上限是 10MB，
+// 这里留一点余量；内存里最多压 30 分钟，编辑器取走后就不该再占着。
+const ASSET_BODY_LIMIT = 16 * 1024 * 1024;
+const ASSET_TTL_MS = 30 * 60 * 1000;
 
 const setupAiBridge = ({dir}) => new Promise(resolve => {
     const file = path.join(dir, 'ai-bridge.json');
     const token = randomBytes(24).toString('hex');
+    // 上次退出时留下的清单和提示词先接着用：MCP 客户端可能在编辑器连上之前就启动，
+    // 而下面 persist() 会把文件重写一遍 —— 先读进来，别让这一瞬间变成空清单。
+    let previous = null;
+    try {
+        previous = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (error) {
+        previous = null;
+    }
     let port = 0;
     let editor = null;
-    let tools = [];
-    let skills = [];
+    let tools = previous && Array.isArray(previous.tools) ? previous.tools : [];
+    let skills = previous && Array.isArray(previous.skills) ? previous.skills : [];
+    // 编辑器的系统提示词（跟面板里那份同源）。每次编辑器连上都会重发一遍，落盘给 MCP 启动时用。
+    let instructions = previous && typeof previous.instructions === 'string' ? previous.instructions : '';
     let queue = Promise.resolve();
     let seq = 0;
+    let assetSeq = 0;
     const pending = new Map();
     const waiters = new Set();
+    /** @type {Map<string, {name: string, mime: string, data: Buffer, expires: number}>} */
+    const assets = new Map();
 
     const wss = new WebSocketServer({host: '127.0.0.1', port: 0});
 
@@ -56,7 +73,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
     const persist = () => {
         try {
             fs.mkdirSync(dir, {recursive: true});
-            fs.writeFileSync(file, JSON.stringify({port, token, pid: process.pid, tools, skills}));
+            fs.writeFileSync(file, JSON.stringify({port, token, pid: process.pid, tools, skills, instructions}));
         } catch (error) {
             // 写不了就只是 MCP 找不到这条链，编辑器自己照常
         }
@@ -78,13 +95,49 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         waiters.add(finish);
     });
 
-    const dispatch = (name, args) => new Promise(done => {
+    // 素材 id -> 真正字节。编辑器侧的工具有 1MB 的 JSON 老限制，声音动辄几 MB，
+    // 所以 /v1/assets 先把原始字节收在这里，调用时再换成 data / mimeType / name 三个参数。
+    const pruneAssets = () => {
+        const now = Date.now();
+        for (const [id, entry] of assets) {
+            if (entry.expires <= now) {
+                assets.delete(id);
+            }
+        }
+    };
+
+    const expandAsset = args => {
+        if (!args || typeof args.assetId !== 'string' || !args.assetId) {
+            return {args};
+        }
+        pruneAssets();
+        const asset = assets.get(args.assetId);
+        if (!asset) {
+            return {
+                error: 'E_ASSET',
+                message: `Unknown or expired assetId: ${args.assetId}. POST the file to /v1/assets again.`
+            };
+        }
+        const out = {...args};
+        if (!out.data) out.data = asset.data.toString('base64');
+        if (!out.mimeType && asset.mime) out.mimeType = asset.mime;
+        if (!out.name && asset.name) out.name = asset.name;
+        delete out.assetId;
+        return {args: out};
+    };
+
+    const dispatch = (name, rawArgs) => new Promise(done => {
         if (!editor) {
             done({
                 error: 'E_NO_EDITOR',
                 message: 'XMUER Coding Engine desktop is running, but its editor is not connected. ' +
                     'Open a project and retry.'
             });
+            return;
+        }
+        const resolved = expandAsset(rawArgs);
+        if (resolved.error) {
+            done({error: resolved.error, message: resolved.message});
             return;
         }
         const id = `c${++seq}`;
@@ -98,7 +151,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             done({error: 'E_TIMEOUT', message: 'The editor did not answer in time.'});
         }, CALL_TIMEOUT_MS);
         pending.set(id, finish);
-        send(editor, {type: 'call', id, name, args: args || {}});
+        send(editor, {type: 'call', id, name, args: resolved.args || {}});
     });
 
     wss.on('connection', socket => {
@@ -132,7 +185,8 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
                 send(socket, {
                     type: 'welcome',
                     tools: role === 'client' ? tools : [],
-                    skills: role === 'client' ? skills : []
+                    skills: role === 'client' ? skills : [],
+                    instructions: role === 'client' ? instructions : ''
                 });
                 return;
             }
@@ -140,6 +194,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
                 if (message.type === 'tools' && Array.isArray(message.tools)) {
                     tools = message.tools;
                     skills = Array.isArray(message.skills) ? message.skills : [];
+                    instructions = typeof message.instructions === 'string' ? message.instructions : '';
                     persist();
                 } else if (message.type === 'result') {
                     const finish = pending.get(message.id);
@@ -158,7 +213,7 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             }
             if (role === 'client') {
                 if (message.type === 'list') {
-                    waitForEditor().then(() => send(socket, {type: 'tools', tools, skills}));
+                    waitForEditor().then(() => send(socket, {type: 'tools', tools, skills, instructions}));
                 } else if (message.type === 'call') {
                     const id = message.id;
                     // 串行：两个客户端同时写同一个项目只会互相盖
@@ -276,19 +331,19 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         }
     };
 
-    const readBody = req => new Promise((resolve, reject) => {
+    const readBody = (req, limit = ACCESS_BODY_LIMIT) => new Promise((resolve, reject) => {
         let size = 0;
         const chunks = [];
         req.on('data', chunk => {
             size += chunk.length;
-            if (size > ACCESS_BODY_LIMIT) {
-                reject(new Error('Request body too large.'));
+            if (size > limit) {
+                reject(new Error(`Request body too large (limit ${Math.round(limit / 1024 / 1024)}MB).`));
                 req.destroy();
                 return;
             }
             chunks.push(chunk);
         });
-        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        req.on('end', () => resolve(Buffer.concat(chunks)));
         req.on('error', reject);
     });
 
@@ -331,13 +386,69 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         }
         if (route === '/v1/tools' && req.method === 'GET') {
             await waitForEditor();
-            json(res, 200, {tools, skills});
+            json(res, 200, {tools, skills, instructions});
+            return;
+        }
+        if (route === '/v1/instructions' && req.method === 'GET') {
+            await waitForEditor();
+            json(res, 200, {instructions});
+            return;
+        }
+        // 原始字节上传：?name=blast.mp3&mime=audio/mpeg。返回的 assetId 交给 xce_add_sound。
+        if (route === '/v1/assets' && req.method === 'POST') {
+            let body;
+            try {
+                body = await readBody(req, ASSET_BODY_LIMIT);
+            } catch (error) {
+                json(res, 413, {error: 'E_BODY', message: String((error && error.message) || error)});
+                return;
+            }
+            if (!body.length) {
+                json(res, 400, {error: 'E_BODY', message: 'The body is empty. POST the file bytes.'});
+                return;
+            }
+            const query = new URL(req.url, 'http://127.0.0.1');
+            pruneAssets();
+            const id = `a${++assetSeq}`;
+            const entry = {
+                name: String(query.searchParams.get('name') || '')
+                    .slice(0, 200),
+                mime: String(query.searchParams.get('mime') || '')
+                    .slice(0, 100),
+                data: body,
+                expires: Date.now() + ASSET_TTL_MS
+            };
+            assets.set(id, entry);
+            // 授权客户端也不该靠反复上传把内存喂爆：只留最近 8 份
+            while (assets.size > 8) {
+                assets.delete(assets.keys().next().value);
+            }
+            json(res, 200, {
+                ok: true,
+                assetId: id,
+                name: entry.name,
+                mime: entry.mime,
+                size: body.length,
+                message: `Pass assetId "${id}" to xce_add_sound (or another tool that takes one) within ` +
+                    `${Math.round(ASSET_TTL_MS / 60000)} minutes.`
+            });
             return;
         }
         if (route === '/v1/call' && req.method === 'POST') {
+            let raw;
+            try {
+                raw = await readBody(req);
+            } catch (error) {
+                json(res, 413, {
+                    error: 'E_BODY',
+                    message: `${(error && error.message) || error} A file too large for this body should be ` +
+                        'POSTed to /v1/assets instead, then passed as assetId.'
+                });
+                return;
+            }
             let payload;
             try {
-                payload = JSON.parse(await readBody(req));
+                payload = JSON.parse(raw.toString('utf8'));
             } catch (error) {
                 json(res, 400, {error: 'E_BODY', message: 'Body must be JSON: {"name": "...", "args": {}}'});
                 return;
@@ -361,7 +472,8 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         }
         json(res, 404, {
             error: 'E_NOT_FOUND',
-            message: 'Available: GET /v1/health, GET /v1/tools, POST /v1/call'
+            message: 'Available: GET /v1/health, GET /v1/tools, GET /v1/instructions, ' +
+                'POST /v1/assets, POST /v1/call'
         });
     };
 
