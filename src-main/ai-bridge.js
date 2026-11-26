@@ -36,6 +36,11 @@ const ACCESS_BODY_LIMIT = 1024 * 1024;
 // 这里留一点余量；内存里最多压 30 分钟，编辑器取走后就不该再占着。
 const ASSET_BODY_LIMIT = 16 * 1024 * 1024;
 const ASSET_TTL_MS = 30 * 60 * 1000;
+// 截图结果：外部客户端 / 模型不一定吃 base64，落成一个短时效的地址交给对方自己取。
+// 文件名带时间戳 + 随机串，猜不到；只活 10 分钟，内存里最多留 32 张。
+const SHOT_TTL_MS = 10 * 60 * 1000;
+const SHOT_MAX = 32;
+const SHOT_PATH = /^\/xce\/shots\/([a-z0-9-]+)\.(png|jpg|jpeg)$/i;
 
 const setupAiBridge = ({dir}) => new Promise(resolve => {
     const file = path.join(dir, 'ai-bridge.json');
@@ -61,6 +66,10 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
     const waiters = new Set();
     /** @type {Map<string, {name: string, mime: string, data: Buffer, expires: number}>} */
     const assets = new Map();
+    /** @type {Map<string, {mime: string, data: Buffer, expires: number}>} */
+    const shots = new Map();
+    let shotsServer = null;
+    let shotsPort = 0;
 
     const wss = new WebSocketServer({host: '127.0.0.1', port: 0});
 
@@ -125,6 +134,101 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         delete out.assetId;
         return {args: out};
     };
+
+    // 截图（xce_read_stage / xce_read_costume）在结果里是 data URL。外置模型不一定读得了
+    // base64，也没法把它当附件，所以落成 http 地址：文件名 = 时间戳 + 随机串，猜不到，
+    // 10 分钟后失效。content 里再补一行，老客户端不认 images 也能把地址转给模型。
+    const pruneShots = () => {
+        const now = Date.now();
+        for (const [id, entry] of shots) {
+            if (entry.expires <= now) {
+                shots.delete(id);
+            }
+        }
+    };
+
+    const storeShot = (mime, data) => {
+        pruneShots();
+        const type = /^image\//i.test(mime || '') ? mime : 'image/png';
+        const ext = /jpe?g/i.test(type) ? 'jpg' : 'png';
+        const id = `${Date.now().toString(36)}-${randomBytes(8).toString('hex')}`;
+        shots.set(id, {mime: type, data, expires: Date.now() + SHOT_TTL_MS});
+        while (shots.size > SHOT_MAX) {
+            shots.delete(shots.keys().next().value);
+        }
+        return `${id}.${ext}`;
+    };
+
+    const hostImages = (result, base) => {
+        if (!base || !result || !Array.isArray(result.images) || !result.images.length) {
+            return result;
+        }
+        const urls = [];
+        const images = result.images.map(image => {
+            const match = /^data:([^;,]+);base64,(.+)$/s.exec(String((image && image.url) || ''));
+            if (!match) {
+                return image;
+            }
+            const mime = (image && image.mimeType) || match[1] || 'image/png';
+            const data = Buffer.from(match[2], 'base64');
+            const url = `${base}/xce/shots/${storeShot(mime, data)}`;
+            urls.push(url);
+            return {url, mimeType: mime, size: data.length};
+        });
+        if (!urls.length) {
+            return result;
+        }
+        const content = String(result.content || '');
+        return {
+            ...result,
+            images,
+            content: `${content}${content ? '\n\n' : ''}Image: ${urls.join('\nImage: ')}`
+        };
+    };
+
+    // 图片地址不需要密钥：路径本身就是一次性的凭据，客户端 / 模型直接 GET 就行。
+    const serveShot = (req, res) => {
+        const match = SHOT_PATH.exec(String(req.url || '/').split('?')[0]);
+        if (!match) {
+            return false;
+        }
+        pruneShots();
+        const entry = shots.get(match[1]);
+        if (!entry) {
+            res.writeHead(404, {'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store'});
+            res.end('Shot not found or expired.');
+            return true;
+        }
+        res.writeHead(200, {
+            'content-type': entry.mime,
+            'content-length': entry.data.length,
+            'cache-control': 'no-store',
+            'access-control-allow-origin': '*'
+        });
+        res.end(entry.data);
+        return true;
+    };
+
+    // MCP 客户端走 WS、和编辑器同一台机器：固定给回环地址。对外 HTTP 那条路会用
+    // 请求自己的 Host（内网 IP 或 127.0.0.1）拼地址，见 /v1/call。
+    const startShots = () => new Promise(done => {
+        const server = http.createServer((req, res) => {
+            if (req.method === 'GET' && serveShot(req, res)) {
+                return;
+            }
+            res.writeHead(404, {'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store'});
+            res.end('Not found.');
+        });
+        server.on('error', () => {
+            shotsServer = null;
+            done();
+        });
+        server.listen(0, '127.0.0.1', () => {
+            shotsServer = server;
+            shotsPort = server.address().port;
+            done();
+        });
+    });
 
     const dispatch = (name, rawArgs) => new Promise(done => {
         if (!editor) {
@@ -222,7 +326,10 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
                         if (result.error) {
                             send(socket, {type: 'error', id, code: result.error, message: result.message});
                         } else {
-                            send(socket, {type: 'result', id, ...result});
+                            // MCP 客户端和编辑器在同一台机器上：截图给回环地址（见 hostImages）
+                            const hosted = hostImages(result,
+                                shotsPort ? `http://127.0.0.1:${shotsPort}` : '');
+                            send(socket, {type: 'result', id, ...hosted});
                         }
                     });
                 }
@@ -366,6 +473,10 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             res.end();
             return;
         }
+        // 截图地址：路径里的随机串就是凭据，不再要密钥（模型拿到的就是一个能直接打开的地址）
+        if (req.method === 'GET' && serveShot(req, res)) {
+            return;
+        }
         if (route === '/v1/health') {
             json(res, 200, {
                 ok: true,
@@ -461,11 +572,16 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             if (result.error) {
                 json(res, 502, {error: result.error, message: result.message});
             } else {
+                // 用客户端自己连过来的地址拼截图 URL：同一台机器就是 127.0.0.1，
+                // 内网另一台机器就是它访问的那个 IP（和 Host 头一致）
+                const base = req.headers.host ? `http://${req.headers.host}` :
+                    (shotsPort ? `http://127.0.0.1:${shotsPort}` : '');
+                const hosted = hostImages(result, base);
                 json(res, 200, {
                     ok: true,
-                    content: result.content,
-                    isError: !!result.isError,
-                    images: result.images || null
+                    content: hosted.content,
+                    isError: !!hosted.isError,
+                    images: hosted.images || null
                 });
             }
             return;
@@ -473,7 +589,8 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
         json(res, 404, {
             error: 'E_NOT_FOUND',
             message: 'Available: GET /v1/health, GET /v1/tools, GET /v1/instructions, ' +
-                'POST /v1/assets, POST /v1/call'
+                'POST /v1/assets, POST /v1/call, and GET /xce/shots/<id>.<png|jpg> for screenshots ' +
+                'returned by a tool.'
         });
     };
 
@@ -566,6 +683,14 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
             info: port ? {port, token} : null,
             stop: () => {
                 stopAccess();
+                if (shotsServer) {
+                    try {
+                        shotsServer.close();
+                    } catch (error) {
+                        // 已经关了
+                    }
+                    shotsServer = null;
+                }
                 try {
                     wss.close();
                 } catch (error) {
@@ -582,6 +707,8 @@ const setupAiBridge = ({dir}) => new Promise(resolve => {
 
     wss.on('listening', async () => {
         port = wss.address().port;
+        // 截图地址要能立刻取，先把这个只监听回环的小服务起好（MCP 客户端走它）
+        await startShots();
         // 上次开着「外部接入」的话，这次启动就接着开（密钥不变，别的机器上的配置不用改）
         if (access.enabled) {
             if (!access.key) {
